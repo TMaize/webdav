@@ -16,6 +16,6 @@ EXPOSE 80
 
 WORKDIR /app
 
-COPY --from=builder /app/ /app/
+COPY --from=builder /app/webdav /app/webdav
 
 ENTRYPOINT ["/app/webdav"]

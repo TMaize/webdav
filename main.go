@@ -4,36 +4,26 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"golang.org/x/net/webdav"
-	"gopkg.in/yaml.v3"
 	"log"
 	"net/http"
 	"os"
-	"regexp"
-	"strings"
+	"path/filepath"
 	"time"
+
+	"golang.org/x/net/webdav"
+	"gopkg.in/yaml.v3"
 )
 
 type Account struct {
 	User     string `yaml:"user"`
 	Password string `yaml:"password"`
 	Dir      string `yaml:"dir"`
+	handler  *webdav.Handler
 }
 
 type Config struct {
 	Port     int       `yaml:"port"`
 	Accounts []Account `yaml:"accounts"`
-}
-
-func checkName(name string) error {
-	matched, err := regexp.MatchString("^[0-9a-zA-Z]+$", name)
-	if err != nil {
-		return err
-	}
-	if !matched {
-		return errors.New("user need match [0-9a-zA-Z]")
-	}
-	return nil
 }
 
 func main() {
@@ -58,51 +48,52 @@ func main() {
 	}
 
 	// init account handler
-	handlers := make(map[string]webdav.Handler, 0)
-	for _, account := range config.Accounts {
-		err := checkName(account.User)
+	cache := make(map[string]Account)
+	for i := 0; i < len(config.Accounts); i++ {
+		account := config.Accounts[i]
+
+		// check duplicate
+		if _, ok := cache[account.User]; ok {
+			log.Fatalln(errors.New("duplicate account"))
+		}
+
+		// check home dir
+		absPath, err := filepath.Abs(account.Dir)
 		if err != nil {
 			log.Fatalln(err)
 		}
-		handlers[account.User] = webdav.Handler{
-			Prefix:     "/user/" + account.User,
-			FileSystem: webdav.Dir(account.Dir),
+		info, err := os.Stat(absPath)
+		if (err == nil && !info.IsDir()) || err != nil {
+			log.Fatalln(errors.New("path does not exist: " + absPath))
+		}
+
+		account.handler = &webdav.Handler{
+			Prefix:     "/",
+			FileSystem: webdav.Dir(absPath),
 			LockSystem: webdav.NewMemLS(),
 		}
+		cache[account.User] = account
 	}
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/user", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(404)
-	})
-
-	mux.HandleFunc("/user/", func(w http.ResponseWriter, r *http.Request) {
-		arr := strings.Split(r.URL.Path, "/")
-		user := arr[2]
-
-		var account *Account
-		for _, item := range config.Accounts {
-			if item.User == user {
-				account = &item
-			}
-		}
-
-		if account == nil {
-			w.WriteHeader(404)
-			return
-		}
-
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// basic auth
 		username, password, ok := r.BasicAuth()
-		if account.Password != "" && (!ok || username != account.User || password != account.Password) {
+		if !ok {
 			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
-		handler := handlers[account.User]
-		handler.ServeHTTP(w, r)
+		account, exist := cache[username]
+		if !exist || username != account.User || password != account.Password {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		account.handler.ServeHTTP(w, r)
 	})
 
 	go func() {

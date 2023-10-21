@@ -25,9 +25,3 @@ run with docker
 ```
 docker run tmaize/webdav -p 80:80 -v config.yml:/app/config.yml
 ```
-
-address
-
-```
-http://example.com/user/${user}
-```

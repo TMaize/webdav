@@ -20,8 +20,8 @@ run with binary
 webdav -c config.yml
 ```
 
-run with docker
+run with [docker](https://registry.hub.docker.com/r/tmaize/webdav/tags)
 
 ```
-docker run tmaize/webdav -p 80:80 -v config.yml:/app/config.yml
+docker run tmaize/webdav:x.x.x -p 80:80 -v config.yml:/app/config.yml
 ```
